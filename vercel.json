@@ -1,0 +1,11 @@
+{
+  "cleanUrls": true,
+  "headers": [
+    { "source": "/datos.json",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800" }] },
+    { "source": "/(leaflet.js|leaflet.css)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=60, s-maxage=300, stale-while-revalidate=86400" }] }
+  ]
+}
