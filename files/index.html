@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mapa del eclipse del 12 de agosto en España | La Razón</title>
+<meta name="description" content="Mapa interactivo con la franja de totalidad, la hora exacta y la altura del Sol en los 8.184 municipios de España.">
+<meta name="theme-color" content="#070813">
+<meta property="og:title" content="Mapa del eclipse del 12 de agosto en España">
+<meta property="og:description" content="Busca tu municipio: hora, duración de la totalidad y altura del Sol sobre el horizonte.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,900&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --carbon:#070813; --noche:#0d1030; --profundo:#191c48;
+  --brasa:#e2542a; --ambar:#f5a03c; --corona:#e7ecff;
+  --tenue:#9aa2ce; --razon:#c5161d;
+  --sheet: 0px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;overscroll-behavior:none}
+body{
+  background:var(--carbon); color:var(--corona);
+  font:400 16px/1.45 Archivo,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;
+}
+#map{position:absolute;inset:0;background:var(--carbon);z-index:1}
+.leaflet-container{background:var(--carbon);font-family:Archivo,sans-serif}
+#lienzo{position:absolute;inset:0;z-index:400;pointer-events:none}
+
+/* ---------- barra superior ---------- */
+.top{
+  position:absolute;z-index:900;top:0;left:0;right:0;
+  padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+  display:flex;align-items:center;gap:10px;
+  background:linear-gradient(180deg,rgba(7,8,19,.94) 55%,rgba(7,8,19,0));
+  pointer-events:none;
+}
+.top>*{pointer-events:auto}
+.marca{
+  font-weight:700;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--razon);white-space:nowrap;flex:none;
+}
+.marca i{display:block;font-style:normal;color:var(--tenue);letter-spacing:.1em;font-size:9px}
+
+.busca{position:relative;flex:1;min-width:0;max-width:340px}
+.busca input{
+  width:100%;padding:11px 34px 11px 13px;
+  font:500 15px Archivo,sans-serif;color:var(--corona);
+  background:rgba(231,236,255,.07);border:1.5px solid rgba(231,236,255,.2);
+  border-radius:2px;outline:none;-webkit-appearance:none;
+}
+.busca input:focus{border-color:var(--ambar);background:rgba(231,236,255,.11)}
+.busca input::placeholder{color:#6f77a4}
+.busca .x{
+  position:absolute;right:2px;top:0;bottom:0;width:32px;border:0;background:none;
+  color:var(--tenue);font-size:19px;cursor:pointer;display:none;
+}
+.busca.lleno .x{display:block}
+.res{
+  position:absolute;left:0;right:0;top:calc(100% + 4px);
+  background:#10132c;border:1px solid rgba(231,236,255,.18);
+  max-height:min(48vh,320px);overflow:auto;display:none;
+}
+.res.on{display:block}
+.res button{
+  display:flex;width:100%;gap:8px;align-items:baseline;text-align:left;
+  padding:10px 13px;background:none;border:0;
+  border-bottom:1px solid rgba(231,236,255,.07);
+  color:var(--corona);font:500 15px Archivo,sans-serif;cursor:pointer;
+}
+.res button:hover,.res button[aria-selected=true]{background:rgba(245,160,60,.16)}
+.res span{color:var(--tenue);font-weight:400;font-size:13px}
+.res em{margin-left:auto;font-style:normal;font-size:12px;font-weight:600;letter-spacing:.04em}
+
+.geo{
+  flex:none;width:42px;height:42px;border-radius:2px;cursor:pointer;
+  background:rgba(231,236,255,.07);border:1.5px solid rgba(231,236,255,.2);
+  color:var(--corona);display:grid;place-items:center;
+}
+.geo:hover{border-color:var(--ambar)}
+.geo svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7}
+.geo.buscando{animation:pulso 1s ease-in-out infinite}
+@keyframes pulso{50%{opacity:.35}}
+
+/* ---------- leyenda ---------- */
+.leyenda{
+  position:absolute;z-index:800;left:14px;bottom:calc(var(--sheet) + 96px);
+  display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--tenue);
+  letter-spacing:.02em;pointer-events:none;
+}
+.leyenda div{display:flex;align-items:center;gap:7px}
+.leyenda b{width:11px;height:11px;border-radius:50%;flex:none}
+
+/* ---------- reloj + scrubber ---------- */
+.tiempo{
+  position:absolute;z-index:900;left:0;right:0;
+  bottom:calc(var(--sheet) + env(safe-area-inset-bottom));
+  padding:12px 14px 14px;
+  background:linear-gradient(0deg,rgba(7,8,19,.96) 60%,rgba(7,8,19,0));
+  transition:bottom .28s cubic-bezier(.2,.7,.3,1);
+}
+.fila{display:flex;align-items:center;gap:12px;max-width:760px;margin:0 auto 9px}
+.reloj{
+  font:600 26px/1 Archivo,sans-serif;font-variant-numeric:tabular-nums;
+  letter-spacing:-.01em;flex:none;
+}
+.reloj small{display:block;font:500 10px/1.4 Archivo;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--tenue);margin-top:4px}
+.modos{display:flex;margin-left:auto;border:1.5px solid rgba(231,236,255,.2);border-radius:2px;overflow:hidden}
+.modos button{
+  padding:9px 13px;background:none;border:0;cursor:pointer;
+  font:600 11px Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--tenue);
+}
+.modos button[aria-pressed=true]{background:var(--ambar);color:var(--carbon)}
+.modos button+button{border-left:1.5px solid rgba(231,236,255,.2)}
+
+.barra{max-width:760px;margin:0 auto;position:relative}
+.barra.off{opacity:.28;pointer-events:none}
+input[type=range]{
+  width:100%;-webkit-appearance:none;appearance:none;background:none;margin:0;
+  height:26px;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:3px;background:rgba(231,236,255,.24);border-radius:2px}
+input[type=range]::-moz-range-track{height:3px;background:rgba(231,236,255,.24)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:var(--ambar);border:3px solid var(--carbon);margin-top:-9px;
+  box-shadow:0 0 0 1px var(--ambar),0 0 16px rgba(245,160,60,.7)}
+input[type=range]::-moz-range-thumb{
+  width:20px;height:20px;border-radius:50%;background:var(--ambar);
+  border:3px solid var(--carbon);box-shadow:0 0 0 1px var(--ambar)}
+input[type=range]:focus-visible::-webkit-slider-thumb{outline:2px solid var(--corona);outline-offset:3px}
+.ticks{display:flex;justify-content:space-between;font:500 10px Archivo;
+  letter-spacing:.08em;color:#5d6497;margin-top:-2px}
+
+/* ---------- ficha ---------- */
+.ficha{
+  position:absolute;z-index:950;left:0;right:0;bottom:0;
+  background:#0b0e26;border-top:2px solid var(--razon);
+  padding:16px 16px calc(18px + env(safe-area-inset-bottom));
+  transform:translateY(102%);transition:transform .32s cubic-bezier(.2,.7,.3,1);
+  max-height:64vh;overflow:auto;
+}
+.ficha.on{transform:none}
+@media(min-width:820px){
+  .ficha{left:auto;right:16px;bottom:16px;width:376px;max-height:none;
+    border:1px solid rgba(231,236,255,.16);border-top:2px solid var(--razon);
+    transform:translateX(calc(100% + 28px))}
+  .ficha.on{transform:none}
+  .tiempo{bottom:env(safe-area-inset-bottom)!important}
+  .leyenda{bottom:calc(96px)!important}
+}
+.cabeza{display:flex;align-items:flex-start;gap:12px}
+.cabeza h2{font:900 27px/1.05 Fraunces,Georgia,serif;margin:0;letter-spacing:-.02em}
+.cabeza p{margin:4px 0 0;font-size:12.5px;color:var(--tenue);letter-spacing:.06em;text-transform:uppercase}
+.cerrar{margin-left:auto;flex:none;background:none;border:0;color:var(--tenue);
+  font-size:24px;line-height:1;cursor:pointer;padding:0 2px}
+.veredicto{
+  margin:14px 0 0;padding:12px 14px;border-left:3px solid var(--ambar);
+  background:rgba(245,160,60,.09);
+}
+.veredicto b{display:block;font:900 20px/1.15 Fraunces,serif;color:var(--ambar)}
+.veredicto.total b{color:var(--corona)}
+.veredicto.total{border-left-color:var(--corona);background:rgba(231,236,255,.09)}
+.veredicto span{display:block;font-size:13.5px;color:var(--tenue);margin-top:3px}
+.datos{margin:14px 0 0;border-top:1px solid rgba(231,236,255,.12)}
+.datos div{display:flex;justify-content:space-between;gap:14px;padding:9px 0;
+  border-bottom:1px solid rgba(231,236,255,.08);font-size:14px}
+.datos dt{color:var(--tenue);margin:0}
+.datos dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.datos dd.hot{color:var(--corona)}
+.aviso{margin:13px 0 0;font-size:12.5px;line-height:1.5;color:var(--tenue);
+  border-left:2px solid var(--razon);padding-left:11px}
+.aviso b{color:var(--corona);font-weight:600}
+
+.creditos{
+  position:absolute;z-index:700;right:10px;
+  bottom:calc(var(--sheet) + 100px);
+  font-size:10px;color:#4b5185;text-align:right;line-height:1.5;max-width:44%;
+  pointer-events:none;
+}
+@media(max-width:520px){.creditos{display:none}}
+
+.cargando{
+  position:absolute;inset:0;z-index:1000;display:grid;place-items:center;
+  background:var(--carbon);font:500 13px Archivo;color:var(--tenue);
+  letter-spacing:.1em;text-transform:uppercase;
+}
+.cargando.off{opacity:0;pointer-events:none;transition:opacity .4s}
+.leaflet-control-zoom{display:none}
+.leaflet-control-attribution{display:none}
+@media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<canvas id="lienzo"></canvas>
+
+<header class="top">
+  <div class="marca">La Razón<i>Eclipse 12 ago 2026</i></div>
+  <div class="busca" id="busca">
+    <input id="q" type="search" placeholder="Busca tu municipio" autocomplete="off"
+           spellcheck="false" aria-label="Busca tu municipio" role="combobox"
+           aria-expanded="false" aria-controls="res">
+    <button class="x" id="limpiar" aria-label="Borrar búsqueda">&times;</button>
+    <div class="res" id="res" role="listbox"></div>
+  </div>
+  <button class="geo" id="geo" aria-label="Usar mi ubicación">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>
+  </button>
+</header>
+
+<div class="leyenda" id="leyenda"></div>
+
+<div class="creditos">
+  Efemérides JPL DE421 · IAU SOFA/ERFA<br>Municipios INE/IGN · Cálculo propio de La Razón
+</div>
+
+<div class="tiempo">
+  <div class="fila">
+    <div class="reloj" id="reloj">20:29:41<small id="relojEt">Hora peninsular</small></div>
+    <div class="modos">
+      <button id="mResumen" aria-pressed="true">Resumen</button>
+      <button id="mDirecto" aria-pressed="false">Directo</button>
+    </div>
+  </div>
+  <div class="barra off" id="barra">
+    <input id="t" type="range" min="0" max="1000" step="1" value="500" aria-label="Hora del eclipse">
+    <div class="ticks"><span>19:30</span><span>20:00</span><span>20:30</span><span>21:00</span><span>21:30</span></div>
+  </div>
+</div>
+
+<section class="ficha" id="ficha" aria-live="polite"></section>
+
+<div class="cargando" id="cargando">Calculando 8.184 municipios…</div>
+
+<script src="leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+
+var K = 1.03344;                 // radio lunar / radio solar aparente
+var DIA = Date.UTC(2026,7,12);   // 12 ago 2026 00:00 UTC
+var T0 = 17*3600, T1 = 19.6*3600; // ventana UTC del scrubber (19:00-21:36 peninsular)
+var D=null, N=0, P=[], sel=-1, modo='resumen', tNow=(T0+T1)/2, timer=null;
+
+var map, cv, ctx, dpr=Math.min(devicePixelRatio||1,2.5);
+var $=function(s){return document.querySelector(s)};
+
+/* ---------- utilidades ---------- */
+function norm(s){return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()}
+function hhmm(sec,seg){
+  if(sec==null||sec<-86000) return '—';
+  var x=((sec%86400)+86400)%86400, h=Math.floor(x/3600), m=Math.floor(x%3600/60), s=Math.floor(x%60);
+  var o=(h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+  return seg? o+':'+(s<10?'0':'')+s : o;
+}
+function dur(s){
+  if(s<1) return '—';
+  var m=Math.floor(s/60), r=Math.round(s%60);
+  return m? m+' min '+r+' s' : r+' s';
+}
+function num(x,d){return x.toFixed(d).replace('.',',')}
+
+/* obscuración a partir de la magnitud (rs=1, rm=K) */
+function obscDeMag(m){
+  if(m<=0) return 0;
+  if(m>=1) return 1;
+  var sep=1+K-2*m;
+  if(sep<=K-1) return 1;
+  if(sep>=1+K) return 0;
+  var a=Math.max(-1,Math.min(1,(sep*sep+1-K*K)/(2*sep)));
+  var b=Math.max(-1,Math.min(1,(sep*sep+K*K-1)/(2*sep*K)));
+  var c=Math.max(0,(1+K-sep)*(sep+K-1)*(sep-K+1)*(sep+K+1));
+  return Math.max(0,Math.min(1,(Math.acos(a)+K*K*Math.acos(b)-0.5*Math.sqrt(c))/Math.PI));
+}
+
+/* magnitud del municipio i en el instante utc (segundos desde 00:00 UTC) */
+function magEn(i,utc){
+  var off=D.tz[i]*3600, tm=D.mx[i]-off+19*3600;      // instantes en UTC
+  var c1=D.c1[i]-off+19*3600, c4=D.c4[i]-off+19*3600;
+  if(utc<=c1||utc>=c4) return 0;
+  var mmax=D.m[i]/1e4, smin=1+K-2*mmax, dt=utc-tm;
+  var ref=dt<0? tm-c1 : c4-tm;
+  if(ref<=0) return 0;
+  var v2=((1+K)*(1+K)-smin*smin)/(ref*ref);
+  var sep=Math.sqrt(smin*smin+v2*dt*dt);
+  return (1+K-sep)/2;
+}
+
+/* ---------- color ---------- */
+var RAMPA=[
+  [0.00, 28, 32, 74],
+  [0.55, 60, 44,110],
+  [0.80,190, 86, 44],
+  [0.95,226, 84, 42],
+  [0.995,245,160, 60],
+  [1.00,231,236,255]
+];
+function color(o){
+  for(var i=1;i<RAMPA.length;i++){
+    if(o<=RAMPA[i][0]||i===RAMPA.length-1){
+      var a=RAMPA[i-1], b=RAMPA[i];
+      var f=(o-a[0])/(b[0]-a[0]||1); f=Math.max(0,Math.min(1,f));
+      return [a[1]+(b[1]-a[1])*f|0, a[2]+(b[2]-a[2])*f|0, a[3]+(b[3]-a[3])*f|0];
+    }
+  }
+}
+
+/* ---------- mapa ---------- */
+function iniciarMapa(){
+  map=L.map('map',{
+    zoomControl:false, attributionControl:false,
+    zoomAnimation:false, fadeAnimation:false, markerZoomAnimation:false,
+    minZoom:5, maxZoom:12, zoomSnap:0.5, wheelPxPerZoomLevel:110,
+    maxBounds:[[26,-20],[45,7]], maxBoundsViscosity:0.9
+  });
+  map.fitBounds([[35.9,-9.4],[43.9,4.4]],{padding:[24,24]});
+  cv=$('#lienzo'); ctx=cv.getContext('2d',{alpha:true});
+  map.on('move zoom resize viewreset',pintar);
+  window.addEventListener('resize',dimensionar);
+  map.on('click',function(e){
+    var i=cercano(e.latlng.lat,e.latlng.lng);
+    if(i>=0) elegir(i,false);
+  });
+  dimensionar();
+}
+function dimensionar(){
+  var w=map.getSize().x, h=map.getSize().y;
+  cv.width=w*dpr; cv.height=h*dpr; cv.style.width=w+'px'; cv.style.height=h+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  pintar();
+}
+
+var raf=null;
+function pintar(){ if(raf) return; raf=requestAnimationFrame(dibujar) }
+
+function dibujar(){
+  raf=null;
+  if(!D) return;
+  var w=cv.width/dpr, h=cv.height/dpr;
+  ctx.clearRect(0,0,w,h);
+  var z=map.getZoom(), s=Math.pow(2,z), o=map.getPixelOrigin();
+  var r=Math.max(1.5,1.75*Math.pow(2,(z-6)*0.46));
+  var utc=tNow, vivo=(modo==='directo');
+  ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<N;i++){
+    var x=P[i*2]*s-o.x; if(x<-20||x>w+20) continue;
+    var y=P[i*2+1]*s-o.y; if(y<-20||y>h+20) continue;
+    var ob;
+    if(vivo){
+      var oc=D.os[i]-D.tz[i]*3600+19*3600;          // ocaso en UTC
+      if(utc>oc){ ctx.globalAlpha=.16; ob=0; }
+      else { ctx.globalAlpha=1; ob=obscDeMag(magEn(i,utc));
+             if(D.v[i]!==0) ob=Math.min(ob,0.9989); }
+    } else { ctx.globalAlpha=1; ob=D.o[i]/1e4; }
+    var c;
+    if(!vivo && D.v[i]===0){          // en resumen, el brillo revela la linea central
+      var f=Math.min(1,(D.d[i]/10)/112);
+      c=[185+70*f|0,196+59*f|0,240+15*f|0];
+    } else c=color(ob);
+    ctx.fillStyle='rgb('+c[0]+','+c[1]+','+c[2]+')';
+    ctx.beginPath(); ctx.arc(x,y,ob>=0.999?r*1.35:r,0,6.2832); ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
+  if(sel>=0){
+    var sx=P[sel*2]*s-o.x, sy=P[sel*2+1]*s-o.y;
+    ctx.strokeStyle='#f5a03c'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(sx,sy,Math.max(11,r*3),0,6.2832); ctx.stroke();
+    ctx.strokeStyle='rgba(7,8,19,.85)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(sx,sy,Math.max(11,r*3)+2,0,6.2832); ctx.stroke();
+  }
+}
+
+function cercano(lat,lon){
+  var best=-1,bd=1e9,cs=Math.cos(lat*Math.PI/180);
+  for(var i=0;i<N;i++){
+    var dy=D.lat[i]/1e4-lat, dx=(D.lon[i]/1e4-lon)*cs;
+    var d=dx*dx+dy*dy;
+    if(d<bd){bd=d;best=i}
+  }
+  return bd<4? best : -1;
+}
+
+/* ---------- ficha ---------- */
+function elegir(i,mover){
+  sel=i;
+  var lat=D.lat[i]/1e4, lon=D.lon[i]/1e4;
+  if(mover) map.setView([lat,lon],Math.max(map.getZoom(),8.5));
+  var tz=D.tz[i], off=tz*3600-19*3600;
+  var esTotal=D.v[i]===0, ob=D.o[i]/100, alt=D.a[i]/10, dt=D.d[i]/10;
+  var htz=tz===2?'CEST':'WEST';
+
+  var vt,vs,cls='';
+  if(esTotal){
+    cls='total';
+    vt='Totalidad · '+dur(dt);
+    vs='El Sol queda completamente oculto. Solo en ese intervalo puedes mirar sin gafas.';
+  } else if(ob>=99.5){
+    vt=num(ob,2)+' % oculto';
+    vs='Roza la totalidad, pero no llega. Queda un filo de Sol: no te quites las gafas en ningún momento.';
+  } else {
+    vt=num(ob,1)+' % oculto';
+    vs='Eclipse parcial. El disco solar nunca desaparece del todo.';
+  }
+
+  var horiz = alt<5 ? 'Muy bajo: necesitas horizonte totalmente despejado hacia el oeste-noroeste. Un edificio o una loma te lo tapan.'
+            : alt<8 ? 'Bajo: busca un punto elevado o con vista libre al oeste-noroeste.'
+                    : 'Suficiente en la mayoría de sitios con vista abierta al oeste-noroeste.';
+
+  var f=$('#ficha');
+  f.innerHTML =
+   '<div class="cabeza"><div><h2>'+esc(D._n[i])+'</h2><p>'+esc(D.prov[D.p[i]])+'</p></div>'+
+   '<button class="cerrar" id="cerrar" aria-label="Cerrar">&times;</button></div>'+
+   '<div class="veredicto '+cls+'"><b>'+vt+'</b><span>'+vs+'</span></div>'+
+   '<dl class="datos">'+
+     (esTotal
+       ? '<div><dt>Empieza la totalidad</dt><dd class="hot">'+hhmm(D.c2[i]+19*3600,true)+'</dd></div>'+
+         '<div><dt>Termina la totalidad</dt><dd class="hot">'+hhmm(D.c3[i]+19*3600,true)+'</dd></div>'
+       : '<div><dt>Máximo</dt><dd class="hot">'+hhmm(D.mx[i]+19*3600,true)+'</dd></div>')+
+     '<div><dt>Primer contacto</dt><dd>'+hhmm(D.c1[i]+19*3600,false)+'</dd></div>'+
+     '<div><dt>Fin del eclipse</dt><dd>'+hhmm(D.c4[i]+19*3600,false)+'</dd></div>'+
+     '<div><dt>Altura del Sol</dt><dd>'+num(alt,1)+'°</dd></div>'+
+     '<div><dt>Puesta de Sol</dt><dd>'+hhmm(D.os[i]+19*3600,false)+'</dd></div>'+
+   '</dl>'+
+   '<p class="aviso"><b>Horizonte.</b> '+horiz+'</p>'+
+   '<p class="aviso"><b>Seguridad.</b> Usa siempre gafas certificadas ISO 12312-2. Nunca mires con gafas de sol, radiografías ni por prismáticos o cámara sin filtro solar.</p>'+
+   '<p class="aviso" style="border-color:rgba(231,236,255,.2)">Horas en '+htz+'. Calculadas para el centro del municipio; en núcleos grandes pueden variar unos segundos.</p>';
+
+  f.classList.add('on');
+  $('#cerrar').onclick=cerrar;
+  ajustarSheet();
+  pintar();
+}
+function cerrar(){ sel=-1; $('#ficha').classList.remove('on'); ajustarSheet(); pintar() }
+function ajustarSheet(){
+  var f=$('#ficha'), alto=(innerWidth<820 && f.classList.contains('on'))? f.offsetHeight : 0;
+  document.documentElement.style.setProperty('--sheet',alto+'px');
+}
+function esc(s){return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+
+/* ---------- búsqueda ---------- */
+var KEY=[], marca=-1;
+function buscar(){
+  var q=norm($('#q').value.trim()), box=$('#res');
+  $('#busca').classList.toggle('lleno',q.length>0);
+  if(q.length<2){ box.classList.remove('on'); box.innerHTML=''; $('#q').setAttribute('aria-expanded','false'); return }
+  var pre=[],mid=[];
+  for(var i=0;i<N && pre.length+mid.length<60;i++){
+    var p=KEY[i].indexOf(q);
+    if(p===0) pre.push(i); else if(p>0) mid.push(i);
+  }
+  var r=pre.concat(mid).slice(0,8);
+  if(!r.length){ box.innerHTML='<button disabled style="color:#6f77a4;cursor:default">Sin resultados</button>'; box.classList.add('on'); return }
+  box.innerHTML=r.map(function(i){
+    var v=D.v[i]===0?'<em style="color:#e7ecff">Totalidad</em>'
+        :(D.o[i]/100>=99.5?'<em style="color:#f5a03c">'+num(D.o[i]/100,2)+'%</em>'
+        :'<em style="color:#9aa2ce">'+num(D.o[i]/100,0)+'%</em>');
+    return '<button role="option" data-i="'+i+'">'+esc(D._n[i])+' <span>'+esc(D.prov[D.p[i]])+'</span>'+v+'</button>';
+  }).join('');
+  marca=-1; box.classList.add('on'); $('#q').setAttribute('aria-expanded','true');
+  Array.prototype.forEach.call(box.children,function(b){
+    b.onclick=function(){ pick(+b.dataset.i) };
+  });
+}
+function pick(i){
+  $('#res').classList.remove('on'); $('#q').blur();
+  $('#q').value=D._n[i]; $('#busca').classList.add('lleno');
+  elegir(i,true);
+}
+
+/* ---------- tiempo ---------- */
+function setModo(m){
+  modo=m;
+  $('#mResumen').setAttribute('aria-pressed',m==='resumen');
+  $('#mDirecto').setAttribute('aria-pressed',m==='directo');
+  $('#barra').classList.toggle('off',m==='resumen');
+  if(m==='resumen'){ if(timer){clearInterval(timer);timer=null} pintarReloj(); }
+  else { engancharAhora(); }
+  pintar(); leyenda();
+}
+function engancharAhora(){
+  var ahora=(Date.now()-DIA)/1000;
+  if(ahora>T0-1800 && ahora<T1+600){
+    tNow=Math.max(T0,Math.min(T1,ahora));
+    $('#t').value=Math.round((tNow-T0)/(T1-T0)*1000);
+    if(!timer) timer=setInterval(tic,1000);
+  } else if(timer){ clearInterval(timer); timer=null }
+  pintarReloj();
+}
+function tic(){
+  var ahora=(Date.now()-DIA)/1000;
+  if(ahora>T1){ clearInterval(timer); timer=null; return }
+  tNow=Math.max(T0,ahora);
+  $('#t').value=Math.round((tNow-T0)/(T1-T0)*1000);
+  pintarReloj(); pintar();
+}
+function pintarReloj(){
+  if(modo==='resumen'){
+    $('#reloj').firstChild.nodeValue='20:26 – 20:34';
+    $('#relojEt').textContent='Paso de la sombra';
+  } else {
+    $('#reloj').firstChild.nodeValue=hhmm(tNow+7200,true);
+    $('#relojEt').textContent=timer? 'En directo · hora peninsular' : 'Hora peninsular (CEST)';
+  }
+}
+function leyenda(){
+  var L=modo==='resumen'
+    ? [['#ffffff','Totalidad larga (~2 min)'],['#b9c4f0','Totalidad corta (&lt;30 s)'],['#f5a03c','99–100 % oculto'],['#e2542a','90–99 %'],['#3c2c6e','60–90 %'],['#1c2049','Menos del 60 %']]
+    : [['#e7ecff','Totalidad ahora'],['#f5a03c','Casi total'],['#e2542a','Parcial fuerte'],['#161a3e','Sin eclipse'],['#0f1230','Sol ya puesto']];
+  $('#leyenda').innerHTML=L.map(function(x){return '<div><b style="background:'+x[0]+'"></b>'+x[1]+'</div>'}).join('');
+}
+
+/* ---------- arranque ---------- */
+fetch('datos.json').then(function(r){return r.json()}).then(function(d){
+  D=d; D._n=d.n.split('|'); N=D._n.length;
+  KEY=D._n.map(norm);
+  iniciarMapa();
+  P=new Float64Array(N*2);
+  for(var i=0;i<N;i++){
+    var p=map.project([D.lat[i]/1e4,D.lon[i]/1e4],0);
+    P[i*2]=p.x; P[i*2+1]=p.y;
+  }
+  $('#cargando').classList.add('off');
+  var ahora=(Date.now()-DIA)/1000;
+  setModo(ahora>T0-3600 && ahora<T1+600 ? 'directo' : 'resumen');
+  leyenda(); pintar();
+
+  $('#q').addEventListener('input',buscar);
+  $('#q').addEventListener('keydown',function(e){
+    var box=$('#res'), n=box.children.length;
+    if(!box.classList.contains('on')||!n) return;
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+      e.preventDefault();
+      marca=(marca+(e.key==='ArrowDown'?1:n-1)+n)%n;
+      Array.prototype.forEach.call(box.children,function(b,j){b.setAttribute('aria-selected',j===marca)});
+      box.children[marca].scrollIntoView({block:'nearest'});
+    } else if(e.key==='Enter'){
+      e.preventDefault(); pick(+box.children[Math.max(marca,0)].dataset.i);
+    } else if(e.key==='Escape'){ box.classList.remove('on') }
+  });
+  $('#limpiar').onclick=function(){ $('#q').value=''; buscar(); $('#q').focus() };
+  document.addEventListener('click',function(e){
+    if(!$('#busca').contains(e.target)) $('#res').classList.remove('on');
+  });
+  $('#mResumen').onclick=function(){setModo('resumen')};
+  $('#mDirecto').onclick=function(){setModo('directo')};
+  $('#t').addEventListener('input',function(){
+    if(modo!=='directo') setModo('directo');
+    if(timer){clearInterval(timer);timer=null}
+    tNow=T0+(+this.value)/1000*(T1-T0);
+    pintarReloj(); pintar();
+  });
+  $('#geo').onclick=function(){
+    var b=this;
+    if(!navigator.geolocation){ alert('Tu navegador no permite la ubicación. Busca tu municipio por el nombre.'); return }
+    b.classList.add('buscando');
+    navigator.geolocation.getCurrentPosition(function(pos){
+      b.classList.remove('buscando');
+      var i=cercano(pos.coords.latitude,pos.coords.longitude);
+      if(i<0){ alert('Estás fuera de España. Busca un municipio por el nombre.'); return }
+      $('#q').value=D._n[i]; $('#busca').classList.add('lleno');
+      elegir(i,true);
+    },function(){
+      b.classList.remove('buscando');
+      alert('No he podido acceder a tu ubicación. Búscate por el nombre del municipio.');
+    },{enableHighAccuracy:false,timeout:8000,maximumAge:600000});
+  };
+  window.addEventListener('resize',ajustarSheet);
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden && modo==='directo') engancharAhora();
+  });
+}).catch(function(){
+  $('#cargando').textContent='No se han podido cargar los datos. Recarga la página.';
+});
+})();
+</script>
+</body>
+</html>
